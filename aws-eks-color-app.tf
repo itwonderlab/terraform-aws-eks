@@ -31,8 +31,10 @@ provider "aws" {
 }
 
 # VPC
+# https://docs.aws.amazon.com/eks/latest/userguide/network_reqs.html
 resource "aws_vpc" "ditlw-vpc" {
   cidr_block = "172.21.0.0/19" #172.21.0.0 - 172.21.31.254
+  enable_dns_hostnames  = true #The VPC must have DNS hostname and DNS resolution support 
   tags = {
     Name = "ditlw-vpc"
   }
@@ -140,6 +142,45 @@ resource "aws_iam_role_policy_attachment" "ditwl-role-eks-01-policy-attachment-A
   role       = aws_iam_role.ditwl-role-eks-01.name
 }
 
+# EKS Node Group Assume Role, manage EC2 Instances
+data "aws_iam_policy_document" "ditwl-ipd-ng-eks-01" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
+
+    actions = ["sts:AssumeRole"]
+  }
+}
+
+# IAM Role for EKS Node Group
+resource "aws_iam_role" "ditwl-role-ng-eks-01" {
+  name = "eks-node-group-example"
+  assume_role_policy = data.aws_iam_policy_document.ditwl-ipd-ng-eks-01.json
+}
+
+# Attach Policity to Role for EKS Node Group: AmazonEKSWorkerNodePolicy
+resource "aws_iam_role_policy_attachment" "ditwl-role-eks-01-policy-attachment-AmazonEKSWorkerNodePolicy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+  role       = aws_iam_role.ditwl-role-ng-eks-01.name
+}
+
+# Attach Policity to Role for EKS Node Group: AmazonEKS_CNI_Policy
+resource "aws_iam_role_policy_attachment" "ditwl-role-eks-01-policy-attachment-AmazonEKS_CNI_Policy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+  role       = aws_iam_role.ditwl-role-ng-eks-01.name
+}
+
+# Attach Policity to Role for EKS Node Group: AmazonEC2ContainerRegistryReadOnly
+resource "aws_iam_role_policy_attachment" "ditwl-role-eks-01-policy-attachment-AmazonEC2ContainerRegistryReadOnly" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+  role       = aws_iam_role.ditwl-role-ng-eks-01.name
+}
+
+
 # EKS Cluster
 resource "aws_eks_cluster" "ditwl-eks-01" {
   name     = "ditwl-eks-01"
@@ -154,4 +195,72 @@ resource "aws_eks_cluster" "ditwl-eks-01" {
   depends_on = [
     aws_iam_role_policy_attachment.ditwl-role-eks-01-policy-attachment-AmazonEKSClusterPolicy
   ]
+}
+
+# Amazon EKS optimized Amazon Linux AMI ID
+# https://docs.aws.amazon.com/eks/latest/userguide/retrieve-ami-id.html
+data "aws_ssm_parameter" "ditwl-eks-ami-al2-release-version" {
+  name = "/aws/service/eks/optimized-ami/${aws_eks_cluster.ditwl-eks-01.version}/amazon-linux-2/recommended/image_id"
+}
+
+# Define a Launch Template (Instance type and configuration to use as Worker Nodes)
+resource "aws_launch_template" "ditwl-lt-eks-01" {
+  name = "ditwl-lt-eks-01"
+
+  block_device_mappings {
+    device_name = "/dev/sdf"
+
+    ebs {
+      volume_size = 20
+    }
+  }
+
+   image_id = nonsensitive(data.aws_ssm_parameter.ditwl-eks-ami-al2-release-version.value)
+   instance_type = "t3a.medium"
+   
+  tag_specifications {
+    resource_type = "instance"
+    tags = {
+      Name = "ditwl-eks-01-worker-node"
+    }
+  }
+  
+}
+
+
+#EKS Node Group (Worker Nodes)
+resource "aws_eks_node_group" "ditwl-eks-ng-eks-01" {
+  cluster_name    = aws_eks_cluster.ditwl-eks-01.name
+  node_group_name = "ditwl-eks-ng-eks-01"
+  node_role_arn   = aws_iam_role.ditwl-role-ng-eks-01.arn
+  subnet_ids      = [aws_subnet.ditwl-sn-za-pro-pub-00.id, aws_subnet.ditwl-sn-zb-pro-pub-04.id]
+
+  launch_template {
+    name = aws_launch_template.ditwl-lt-eks-01.name
+    version = aws_launch_template.ditwl-lt-eks-01.latest_version
+  }
+
+  scaling_config {
+    desired_size = 1
+    max_size     = 2
+    min_size     = 1
+  }
+
+  update_config {
+    max_unavailable = 1
+  }
+
+  # Ensure that IAM Role permissions are created before and deleted after EKS Node Group handling.
+  # Otherwise, EKS will not be able to properly delete EC2 Instances and Elastic Network Interfaces.
+  depends_on = [
+    aws_iam_role_policy_attachment.ditwl-role-eks-01-policy-attachment-AmazonEKSWorkerNodePolicy,
+    aws_iam_role_policy_attachment.ditwl-role-eks-01-policy-attachment-AmazonEKS_CNI_Policy,
+    aws_iam_role_policy_attachment.ditwl-role-eks-01-policy-attachment-AmazonEC2ContainerRegistryReadOnly,
+  ]
+
+  # Optional: Allow external changes without Terraform plan difference
+  lifecycle {
+    ignore_changes = [scaling_config[0].desired_size]
+  }
+
 }
