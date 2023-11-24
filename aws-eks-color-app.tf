@@ -197,48 +197,12 @@ resource "aws_eks_cluster" "ditwl-eks-01" {
   ]
 }
 
-# Amazon EKS optimized Amazon Linux AMI ID
-# https://docs.aws.amazon.com/eks/latest/userguide/retrieve-ami-id.html
-data "aws_ssm_parameter" "ditwl-eks-ami-al2-release-version" {
-  name = "/aws/service/eks/optimized-ami/${aws_eks_cluster.ditwl-eks-01.version}/amazon-linux-2/recommended/image_id"
-}
-
-# Define a Launch Template (Instance type and configuration to use as Worker Nodes)
-resource "aws_launch_template" "ditwl-lt-eks-01" {
-  name = "ditwl-lt-eks-01"
-
-  block_device_mappings {
-    device_name = "/dev/sdf"
-
-    ebs {
-      volume_size = 20
-    }
-  }
-
-   image_id = nonsensitive(data.aws_ssm_parameter.ditwl-eks-ami-al2-release-version.value)
-   instance_type = "t3a.medium"
-   
-  tag_specifications {
-    resource_type = "instance"
-    tags = {
-      Name = "ditwl-eks-01-worker-node"
-    }
-  }
-  
-}
-
-
 #EKS Node Group (Worker Nodes)
 resource "aws_eks_node_group" "ditwl-eks-ng-eks-01" {
   cluster_name    = aws_eks_cluster.ditwl-eks-01.name
   node_group_name = "ditwl-eks-ng-eks-01"
   node_role_arn   = aws_iam_role.ditwl-role-ng-eks-01.arn
   subnet_ids      = [aws_subnet.ditwl-sn-za-pro-pub-00.id, aws_subnet.ditwl-sn-zb-pro-pub-04.id]
-
-  launch_template {
-    name = aws_launch_template.ditwl-lt-eks-01.name
-    version = aws_launch_template.ditwl-lt-eks-01.latest_version
-  }
 
   scaling_config {
     desired_size = 1
