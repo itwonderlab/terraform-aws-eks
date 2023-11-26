@@ -1,0 +1,14 @@
+#-------------------------------------------------
+# KUBERNETES: Add a LoadBalancer  (Optional)
+#-------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: color-service-lb
+spec:
+  selector:
+    app: color
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: LoadBalancer

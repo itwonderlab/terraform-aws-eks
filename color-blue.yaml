@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dep-color-blue
+  labels: #Labels for de deployment app: color and color: blue
+    app: color 
+    color: blue
+spec:
+  selector:
+    matchLabels:  #Deploy in a POD that has labels app: color and color: blue
+      app: color
+      color: blue
+  replicas: 1
+  template: #For the creation of the pod
+    metadata:
+      labels: #Tag the POD with labels app: color and color: blue
+        app: color  
+        color: blue
+    spec:
+      containers:
+        - name: color-blue
+          image: itwonderlab/color
+          resources:
+            limits:
+              cpu: "1"
+              memory: "100Mi"
+            requests:
+              cpu: "0.250"
+              memory: "50Mi"          
+          env:
+          - name: COLOR
+            value: "blue"          
+          ports:
+            - name: http2-web
+              containerPort: 8080
